@@ -19,23 +19,29 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up JDK 25
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '25'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Install SDK packages
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager --install "platforms;android-36" "platforms;android-37" \
+          set -e
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -n1)
+          fi
+          echo "sdkmanager: $SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" --install "platforms;android-36" "platforms;android-37" \
             "build-tools;36.0.0" "build-tools;35.0.0" "platform-tools"
 
       - name: Generate release keystore
@@ -60,20 +66,25 @@ jobs:
       - name: Collect APK
         id: apk
         run: |
+          set -e
           mkdir -p out
           find app/build/outputs/apk -name '*.apk' -exec cp {} out/ \;
-          ls -l out
           VERSION=$(grep -m1 'versionName = "' app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
           TAG="v${VERSION}-b${GITHUB_RUN_NUMBER}"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          ls -l out
+
+      - name: Normalize APK name
+        run: |
+          set -e
+          VERSION="${{ steps.apk.outputs.version }}"
           for f in out/*.apk; do
-            base=$(basename "$f")
-            case "$base" in
-              *release*|*unsigned*) cp "$f" "out/CarLink-${VERSION}-b${GITHUB_RUN_NUMBER}-release.apk" ;;
-              *) cp "$f" "out/CarLink-${VERSION}-b${GITHUB_RUN_NUMBER}-debug.apk" ;;
+            case "$(basename "$f")" in
+              *unsigned*) rm -f "$f" ;;
+              *) mv "$f" "out/CarLink-${VERSION}-b${{ github.run_number }}.apk" ;;
             esac
           done
-          rm -f out/*-release-unsigned.apk
           ls -l out
 
       - name: Publish release
@@ -83,8 +94,8 @@ jobs:
           gh release create "${{ steps.apk.outputs.tag }}" \
             --target "$GITHUB_SHA" \
             --title "CarLink ${{ steps.apk.outputs.tag }}" \
-            --notes "CI build from ${{ github.sha }} (run ${{ github.run_number }})." \
-            out/CarLink-*.apk
+            --notes "CI build from ${{ github.sha }} (run ${{ github.run_number }}). release variant, signed with the CI keystore." \
+            out/*.apk
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
