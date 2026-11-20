@@ -18,7 +18,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     env:
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
@@ -34,15 +34,32 @@ jobs:
 
       - name: Install SDK packages
         run: |
-          set -e
-          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          if [ ! -x "$SDKMANAGER" ]; then
-            SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -n1)
+          SM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SM" ]; then
+            SM=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -n1)
           fi
-          echo "sdkmanager: $SDKMANAGER"
-          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
-          "$SDKMANAGER" --install "platforms;android-36" "platforms;android-37" \
-            "build-tools;36.0.0" "build-tools;35.0.0" "platform-tools"
+          echo "sdkmanager: $SM"
+          yes | "$SM" --licenses >/dev/null 2>&1 || true
+          "$SM" --install "platforms;android-36" "build-tools;36.0.0" "build-tools;35.0.0" "platform-tools"
+
+          # compileSdk 37: not in the stable channel yet, so try canary/dev/beta in order.
+          if [ -d "$ANDROID_HOME/platforms/android-37" ]; then
+            echo "android-37 already installed"
+          else
+            for ch in 3 2 1; do
+              echo "trying --channel=$ch for platforms;android-37"
+              if "$SM" --channel=$ch --install "platforms;android-37"; then
+                break
+              fi
+            done
+          fi
+
+          ls "$ANDROID_HOME/platforms"
+          if [ ! -d "$ANDROID_HOME/platforms/android-37" ]; then
+            echo "::error::platforms;android-37 is not available in any SDK channel; cannot build compileSdk 37"
+            "$SM" --list | grep -E "platforms;android-3[0-9]" | tail -30
+            exit 1
+          fi
 
       - name: Generate release keystore
         run: |
