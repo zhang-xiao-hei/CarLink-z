@@ -40,24 +40,13 @@ jobs:
           fi
           echo "sdkmanager: $SM"
           yes | "$SM" --licenses >/dev/null 2>&1 || true
-          "$SM" --install "platforms;android-36" "build-tools;36.0.0" "build-tools;35.0.0" "platform-tools"
-
-          # compileSdk 37: not in the stable channel yet, so try canary/dev/beta in order.
-          if [ -d "$ANDROID_HOME/platforms/android-37" ]; then
-            echo "android-37 already installed"
-          else
-            for ch in 3 2 1; do
-              echo "trying --channel=$ch for platforms;android-37"
-              if "$SM" --channel=$ch --install "platforms;android-37"; then
-                break
-              fi
-            done
-          fi
+          # The SDK repo names API 37 as "platforms;android-37.0" (and 36.1 as "android-36.1").
+          "$SM" --install "platforms;android-36" "platforms;android-36.1" "platforms;android-37.0" \
+            "build-tools;36.0.0" "build-tools;35.0.0" "platform-tools"
 
           ls "$ANDROID_HOME/platforms"
-          if [ ! -d "$ANDROID_HOME/platforms/android-37" ]; then
-            echo "::error::platforms;android-37 is not available in any SDK channel; cannot build compileSdk 37"
-            "$SM" --list | grep -E "platforms;android-3[0-9]" | tail -30
+          if [ ! -d "$ANDROID_HOME/platforms/android-37.0" ] && [ ! -d "$ANDROID_HOME/platforms/android-37" ]; then
+            echo "::error::Android platform 37 is missing after install"
             exit 1
           fi
 
